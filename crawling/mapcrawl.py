@@ -120,6 +120,6 @@ class GoogleMaps:
             os.makedirs(output_dir)
 
         # Excel 파일로 저장 (encoding 옵션 제거)
-        output_path = os.path.join(output_dir, "riviewxixx.xlsx")
+        output_path = os.path.join(output_dir, "reviewxisxp.xlsx")
         df.to_excel(output_path, index=False)  # encoding 옵션 제거
         print("리뷰가 Excel 파일로 저장되었습니다.")
