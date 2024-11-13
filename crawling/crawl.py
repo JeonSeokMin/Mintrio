@@ -10,8 +10,9 @@ import math
 
 def get_headers(key: str) -> dict[str, dict[str, str]] | None:
     """ Get Headers """
-    JSON_FILE: str = 'json/headers.json'
-    with open(JSON_FILE, 'r', encoding='UTF-8') as file:
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    json_file_path = os.path.join(current_dir, 'headers.json')
+    with open(json_file_path, 'r', encoding='UTF-8') as file:
         headers = json.loads(file.read())
 
     try:

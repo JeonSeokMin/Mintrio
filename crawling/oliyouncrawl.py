@@ -14,6 +14,7 @@ def crawling(url, start_page=1, end_page=3):
     driver = webdriver.Chrome(service=service, options=chrome_options)
     
     driver.get(url)
+    driver.execute_script("window.scrollTo(0, 2000)")
     driver.implicitly_wait(5)
 
     # 결과를 저장할 딕셔너리 초기화
@@ -22,7 +23,7 @@ def crawling(url, start_page=1, end_page=3):
         "rating": [],
         "review": []
     }
-    
+
     try:
         # "고객 리뷰" 버튼 클릭하여 리뷰 페이지로 이동
         review_button = WebDriverWait(driver, 10).until(
@@ -81,5 +82,5 @@ if __name__ == "__main__":
     review_df = pd.DataFrame(review_dict)
 
     # 결과를 엑셀 파일로 저장
-    review_df.to_excel('review_data.xlsx', index=False, engine='openpyxl')
+    review_df.to_excel('revuewxusx/review_data.xlsx', index=False, engine='openpyxl')
     print("크롤링된 데이터가 review_data.xlsx 파일로 저장되었습니다.")

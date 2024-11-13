@@ -7,6 +7,6 @@ from crawling.mapcrawl import GoogleMaps  # 크롤링 위치에서 GoogleMaps �
             coupang.start(url)  # URL을 start 메서드에 전달
             coupang = Coupang()
             coupang.start(url)  # URL을 start 메서드에 전달
-            
-            
+
+크롤링 이후 -> reviewxisx 파일로 이동
 """
