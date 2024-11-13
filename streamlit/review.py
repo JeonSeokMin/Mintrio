@@ -107,14 +107,3 @@ def run_analysis(url):
 #     else:
 #         st.error("URL을 입력해 주세요.")
 # Streamlit 앱 구성 -> 일단 되는지 확인하려고 만든거
-st.title("리뷰 / SWOT 분석 Dashboard")
-
-url = st.text_input("아래의 URL을 입력하세요 (쿠팡 또는 구글 지도 링크)", key="url_input")
-if st.button("분석 시작"):
-    if url:
-        analysis_result = run_analysis(url)
-        if analysis_result:
-            st.subheader("분석 결과")
-            st.write(analysis_result)
-    else:
-        st.error("URL을 입력해 주세요.")
