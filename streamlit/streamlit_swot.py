@@ -108,9 +108,9 @@ if start_button: # 버튼 클릭시
         #     'opportunities': ['온라인 구매 시 추가 할인 제공 등 프로모션 전략 개발 가능성', '개별 포장된 제품의 위생적 장점을 마케팅 포인트로 활용 가능', '건강보조식품 시장에서 젊은 층을 타겟팅한 광고 전략 개발 가능성'],
         #     'threats': ['기존 브랜드에 대한 충성도 있는 고객층 존재 가능성', '경쟁사의 유사한 저렴한 제품 존재 가능성', '무료 샘플이나 경쟁사의 프로모션 활동']
         # }
-        swot_results = analysis_result
+        swot_results = analysis_result # review.py 임포트한거 가져오기
         try:
-            # 만약 응답이 JSON 형식의 문자열이라면 딕셔너리로 변환
+            # 만약 응답이 JSON 형식의 문자열이라면 딕셔너리로 변환 *딕셔너리 형식 아니면 밑에 만들어 놓은 형식 사용이 안됨
             swot_results = json.loads(swot_results)
         except json.JSONDecodeError:
             st.error("SWOT 분석 결과를 JSON 형식으로 변환하는 데 실패했습니다.")

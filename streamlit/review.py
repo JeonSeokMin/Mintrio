@@ -80,6 +80,8 @@ def run_analysis(url):
             'opportunities': ['온라인 구매 시 추가 할인 제공 등 프로모션 전략 개발 가능성', '개별 포장된 제품의 위생적 장점을 마케팅 포인트로 활용 가능', '건강보조식품 시장에서 젊은 층을 타겟팅한 광고 전략 개발 가능성'],
             'threats': ['기존 브랜드에 대한 충성도 있는 고객층 존재 가능성', '경쟁사의 유사한 저렴한 제품 존재 가능성', '무료 샘플이나 경쟁사의 프로모션 활동']
             위 예시처럼 strengthsm weaknesses, opportunities, threats의 이름으로 나눠서 json형식으로 응답해줘
+            그냥 리뷰내용 잘 보이면 잘보인다고 말해줘 
+            {latest_reviews_text}
             """
         )
     else:
@@ -104,3 +106,15 @@ def run_analysis(url):
 #             st.write(analysis_result)
 #     else:
 #         st.error("URL을 입력해 주세요.")
+# Streamlit 앱 구성 -> 일단 되는지 확인하려고 만든거
+st.title("리뷰 / SWOT 분석 Dashboard")
+
+url = st.text_input("아래의 URL을 입력하세요 (쿠팡 또는 구글 지도 링크)", key="url_input")
+if st.button("분석 시작"):
+    if url:
+        analysis_result = run_analysis(url)
+        if analysis_result:
+            st.subheader("분석 결과")
+            st.write(analysis_result)
+    else:
+        st.error("URL을 입력해 주세요.")
