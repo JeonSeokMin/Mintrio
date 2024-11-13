@@ -124,5 +124,6 @@ class SaveData():
         self.row += 1
         self.wb.save(filename=file_name)
 
+
     def __del__(self) -> None:
         self.wb.close()
