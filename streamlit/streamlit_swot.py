@@ -39,7 +39,8 @@ from langchain.chains import LLMChain
 
 # SWOT LLM
 # chat_model
-from langchain_community.chat_models import ChatOpenAI
+# from langchain_community.chat_models import ChatOpenAI
+from langchain_openai import ChatOpenAI
 
 # OutputParser
 from langchain.prompts import PromptTemplate
@@ -47,6 +48,18 @@ from langchain.output_parsers import PydanticOutputParser
 from langchain_core.runnables import RunnablePassthrough
 from pydantic import BaseModel, Field
 from typing import List
+
+# 뉴스 레터
+import requests
+#검색을 통해 로드한 문서를 다룰 수 있도록 하는 라이브러리
+from langchain_community.document_loaders import UnstructuredURLLoader
+#가져온 텍스트를 가공
+from langchain.text_splitter import CharacterTextSplitter
+#임베딩, 벡터 스토어
+from langchain_openai import OpenAIEmbeddings
+from langchain_community.vectorstores import FAISS
+#키워드를 검색할 수 있도록 한다.
+from langchain_community.utilities import GoogleSerperAPIWrapper
 
 
 
@@ -86,12 +99,19 @@ ABSA_template = """
     Text to analyze:
     {text}
 """
-
-# 프롬프트 생성
-ABSA_prompt = ChatPromptTemplate.from_template(ABSA_template)
+ABSA_prompt = PromptTemplate(
+    template=ABSA_template,
+    input_variables=["text"]
+)
 
 # 체인 생성 (프롬프트와 LLM 연결)
-ABSA_chain = LLMChain(llm=ABSA_llm, prompt=ABSA_prompt)
+ABSA_chain = (
+    ABSA_prompt
+    | ABSA_llm
+)
+
+#######################################################################################################################################################
+#######################################################################################################################################################
 
 
 SWOT_llm = ChatOpenAI(
@@ -198,6 +218,101 @@ def collect_swot_keywords(swot_response):
 #######################################################################################################################################################
 #######################################################################################################################################################
 
+embeddings = OpenAIEmbeddings()
+
+def search_serp(query):
+  #k=몇 개의 리스트를 반환할 것인지
+  search = GoogleSerperAPIWrapper(k=5, type="search")
+
+  response_json = search.results(query)
+  print(f"Response ====> , {response_json}")
+
+  return response_json
+
+def pick_best_articles_urls(response_json, query):
+  response_str = json.dumps(response_json)
+
+  llm = ChatOpenAI(temperature=0.5)
+  template = """
+    너는 소비자 트렌드와 시장 동향을 분석하는 전문 평론가야.
+    지금 분석 중인 상품 브랜드의 기회와 위협 요인에 관한 최신 뉴스나 아티클을 찾고 있어.
+
+    QUERY RESPONSE :{response_str}
+
+    위의 리스트는 쿼리 결과에 대한 검색 리스트야 {query}.
+
+    네가 생각하기에 쿼리의 주제를 잘 담고 있는 가장 훌륭한 3개의 아티클을 찾아봐.
+
+    return ONLY an array of urls.
+    also make sure the articles are recent and not too old.
+    if the file, or URL is invalid, show www.google.com
+
+    """
+
+  prompt_template = PromptTemplate(input_variables=["response_str", "query"], template = template)
+
+  article_chooser_chain = LLMChain(
+      llm=llm,
+      prompt=prompt_template,
+      verbose=True
+  )
+
+  urls = article_chooser_chain.run(response_str=response_str, query=query)
+  url_list = json.loads(urls)
+
+  print(url_list)
+  return url_list
+
+def extract_content_from_urls(urls):
+
+  loader = UnstructuredURLLoader(urls=urls)
+  data = loader.load()
+
+  text_splitter = CharacterTextSplitter(
+      separator='\n',
+      chunk_size=1000,
+      chunk_overlap=200,
+      length_function=len
+  )
+
+  docs = text_splitter.split_documents(data)
+  db = FAISS.from_documents(docs, embeddings)
+
+  return db
+
+def summarizer(db, query, k=4):
+  docs = db.similarity_search(query, k=k)
+
+  docs_page_content = " ".join([d.page_content for d in docs])
+
+  llm = ChatOpenAI(model="gpt-3.5-turbo", temperature=0.5)
+  template = """
+    {docs}
+
+    이 뉴스레터는 이메일로 발성될거야. 스팸처럼 보이지 않도록 아래의 양식을 지켜야 해.
+
+    가이드라인에 맞춰서 적어줘.
+    1. 콘텐츠가 밝은 내용이어야 하며, 정보를 얻을 수 있고 유용해야 해.
+    2. 콘텐츠가 너무 길지 않은지 확인해야 해.
+    3. 콘텐츠는 {query}토픽을 잘 나타내고 있는 내용이어야 해.
+    4. 콘텐츠는 읽기 쉽게 쓰여야 하고, 간결해야 해.
+    5. 콘텐츠는 독자에게 영감을 줄 수 있어야 해.
+
+    읽기 편하게 한국어로 작성해 줘.
+
+    SUMMARY :
+    """
+
+  prompt_template = PromptTemplate(input_variables=["docs", "query"], template=template)
+
+  summarize_chain = LLMChain(llm=llm, prompt=prompt_template, verbose=True)
+  response = summarize_chain.run(docs=docs_page_content, query=query)
+
+  return response.replace("\n", "")
+
+#######################################################################################################################################################
+#######################################################################################################################################################
+
 # 사이드바 설정
 st.sidebar.header("검색기록")
 
@@ -219,7 +334,7 @@ if start_button and url:  # 버튼 클릭 시 실행
     df = pd.read_excel(latest_file)
     latest_reviews_text = df['리뷰 내용'].to_string()[:1500]  # 최대 1500자까지만 저장
 
-    ABSA_result = ABSA_chain.run({"text": latest_reviews_text})
+    ABSA_result = ABSA_chain.invoke({"text": latest_reviews_text})
 
     swot_response = swot_chain.invoke({"review_text": latest_reviews_text})
     swot_analysis_result = collect_swot_keywords(swot_response)
@@ -245,7 +360,7 @@ if start_button and url:  # 버튼 클릭 시 실행
         
         with top_left:
             st.subheader("리뷰 분석")
-            st.write(ABSA_result)
+            st.write(ABSA_result.content)
 
         with top_right:
             st.subheader("SWOT 분석")
@@ -302,12 +417,36 @@ if start_button and url:  # 버튼 클릭 시 실행
 
         # 아래 레이아웃이 항상 동일한 행에 위치하도록 컨테이너 유지
         bottom_left, bottom_right = st.columns((1, 1), gap="medium")
+
+        test_oppor = " ".join(swot_results['opportunities'])
+        test_threat = " ".join(swot_results['threats'])
+
+        oppor_query = f'상품명은 {prod_name}, 해당 상품의 {test_oppor}'
+        threat_query = f'상품명은 {prod_name}, 해당 상품의 {test_threat}'
+
+        search_result_oppor = search_serp(oppor_query)
+        oppor_urls = pick_best_articles_urls(response_json=search_result_oppor, query=oppor_query)
+        oppor_data = extract_content_from_urls(oppor_urls)
+        oppor_summaries = summarizer(db=oppor_data, query=oppor_query)
+
+        search_result_threat = search_serp(threat_query)
+        threat_urls = pick_best_articles_urls(response_json=search_result_threat, query=threat_query)
+        threat_data = extract_content_from_urls(threat_urls)
+        threat_summaries = summarizer(db=threat_data, query=threat_query)
+
         
         with bottom_left:
             st.subheader("뉴스 기사")
-            st.write(swot_analysis_result)
+
+            st.write("### 기회 관련 뉴스 기사")
+            st.write(oppor_summaries)
+    
+            st.markdown('<hr style="border:1px solid #ddd;">', unsafe_allow_html=True)
+    
+            st.write("### 위협 관련 뉴스 기사")
+            st.write(threat_summaries)
 
         with bottom_right:
             st.markdown('<div class="divider-vertical"></div>', unsafe_allow_html=True) 
             st.subheader("향후 전망")
-            st.write(swot_analysis_result)
+            st.write()
