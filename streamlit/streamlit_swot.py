@@ -92,13 +92,14 @@ ABSA_template = """
     − The 'aspect category' is the general category to which the aspect belongs. Examples may include 'quality', 'pricing', 'availability', 'appearance', 'functionality', 'service', 'general', and other suitable categories as applicable across diverse domains.
     − The 'sentiment polarity' expresses whether the sentiment is 'positive', 'negative', or 'neutral'.
 
-    Based on the provided definitions, identify and organize all sentiment elements from the following text by grouping them by sentiment polarity. 
+    Based on the provided definitions, identify and organize all sentiment elements from the following text by grouping them by sentiment polarity. Please provide only up to two examples for each sentiment polarity (positive, negative, neutral).
     
     Please answer in Korean.
 
     Text to analyze:
     {text}
 """
+
 ABSA_prompt = PromptTemplate(
     template=ABSA_template,
     input_variables=["text"]
@@ -360,7 +361,7 @@ if start_button and url:  # 버튼 클릭 시 실행
     
     review_folder = os.path.join(os.path.dirname(__file__), 'reviewxisx')
     latest_file = max([os.path.join(review_folder, f) for f in os.listdir(review_folder)], key=os.path.getctime)
-    df = pd.read_excel(latest_file)
+    df = pd.read_excel(latest_file, engine='openpyxl')
     latest_reviews_text = df['리뷰 내용'].to_string()[:1500]  # 최대 1500자까지만 저장
 
     ABSA_result = ABSA_chain.invoke({"text": latest_reviews_text})
