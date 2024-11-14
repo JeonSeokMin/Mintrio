@@ -12,10 +12,12 @@ from review import reivew_crawling
 import platform
 from matplotlib import rc
 import pandas as pd
+import pdfkit
 
 import os
 import sys
 
+pdf_content = ""
 
 
 # 시스템 기본 폰트 설정
@@ -84,30 +86,68 @@ ABSA_llm = ChatOpenAI(
     model_name="gpt-4o",  # 모델명
 )
 
-ABSA_template = """
+# 긍정 템플릿 설정
+positive_template = """
     Define the sentiment elements as follows:
-    
+
     − The 'aspect term' refers to a specific feature, attribute, or aspect of an item, product, or service that a user might comment on. If implicit, the aspect term can be 'null'.
     − The 'opinion term' reflects the sentiment or attitude toward a specific aspect. It can also be 'null' for implicit opinions.
     − The 'aspect category' is the general category to which the aspect belongs. Examples may include 'quality', 'pricing', 'availability', 'appearance', 'functionality', 'service', 'general', and other suitable categories as applicable across diverse domains.
-    − The 'sentiment polarity' expresses whether the sentiment is 'positive', 'negative', or 'neutral'.
+    − The 'sentiment polarity' expresses whether the sentiment is 'positive'.
 
-    Based on the provided definitions, identify and organize all sentiment elements from the following text by grouping them by sentiment polarity. Please provide only up to two examples for each sentiment polarity (positive, negative, neutral).
+    Based on the provided definitions, identify and organize all positive sentiment elements from the following text. Please provide **exactly two examples** for positive polarity.
     
-    Please answer in Korean.
+    You should provide your answer in Korean, but leave 'null' as it is.
+    Please answer in Korean with the following format:
+
+    1.
+       - **측면 용어**: (Aspect Term)
+       - **의견 용어**: (Opinion Term)
+       - **측면 카테고리**: (Aspect Category)
+       - **감정 극성**: (sentiment polarity)
+
+    2.
+       - **측면 용어**: (Aspect Term)
+       - **의견 용어**: (Opinion Term)
+       - **측면 카테고리**: (Aspect Category)
+       - **감정 극성**: (sentiment polarity)
 
     Text to analyze:
     {text}
 """
 
-ABSA_prompt = PromptTemplate(
-    template=ABSA_template,
+positive_prompt = PromptTemplate(
+    template=positive_template,
     input_variables=["text"]
 )
 
-# 체인 생성 (프롬프트와 LLM 연결)
-ABSA_chain = (
-    ABSA_prompt
+# 부정 템플릿 설정
+negative_template = positive_template.replace("positive", "negative").replace("positive sentiment elements", "negative sentiment elements")
+negative_prompt = PromptTemplate(
+    template=negative_template,
+    input_variables=["text"]
+)
+
+# 중립 템플릿 설정
+neutral_template = positive_template.replace("positive", "neutral").replace("positive sentiment elements", "neutral sentiment elements")
+neutral_prompt = PromptTemplate(
+    template=neutral_template,
+    input_variables=["text"]
+)
+
+# 각각 체인 생성
+positive_chain = (
+    positive_prompt
+    | ABSA_llm
+)
+
+negative_chain = (
+    negative_prompt
+    | ABSA_llm
+)
+
+neutral_chain = (
+    neutral_prompt
     | ABSA_llm
 )
 
@@ -223,7 +263,7 @@ embeddings = OpenAIEmbeddings()
 
 def search_serp(query):
   #k=몇 개의 리스트를 반환할 것인지
-  search = GoogleSerperAPIWrapper(k=5, type="search")
+  search = GoogleSerperAPIWrapper(k=10, type="search")
 
   response_json = search.results(query)
   print(f"Response ====> , {response_json}")
@@ -232,12 +272,12 @@ def search_serp(query):
 
 def pick_best_articles_urls(response_json, query):
   response_str = json.dumps(response_json)
-
-  llm = ChatOpenAI(model="gpt-3.5-turbo", temperature=0.5)
+    
+  llm = ChatOpenAI(model="gpt-4o", temperature=0.5)
   template = """
     너는 소비자 트렌드와 시장 동향을 분석하는 전문 평론가야.
     지금 분석 중인 상품 브랜드의 기회와 위협 요인에 관한 최신 뉴스나 아티클을 찾고 있어.
-
+    
     QUERY RESPONSE :{response_str}
 
     위의 리스트는 쿼리 결과에 대한 검색 리스트야 {query}.
@@ -257,8 +297,12 @@ def pick_best_articles_urls(response_json, query):
       verbose=True
   )
 
-  urls = article_chooser_chain.run(response_str=response_str, query=query)
-  url_list = json.loads(urls)
+  try:
+      urls = article_chooser_chain.run(response_str=response_str, query=query)
+      url_list = json.loads(urls)  # JSON 변환 시도
+  except json.JSONDecodeError as e:
+      print(f"JSONDecodeError: {e}")
+      url_list = ["https://www.google.com"]  # 기본 값 설정
 
   print(url_list)
   return url_list
@@ -288,9 +332,7 @@ def summarizer(db, query, k=4):
   llm = ChatOpenAI(model="gpt-4o", temperature=0.7)
   template = """
     {docs}
-
-    이 뉴스레터는 이메일로 발성될거야. 스팸처럼 보이지 않도록 아래의 양식을 지켜야 해.
-
+    
     가이드라인에 맞춰서 적어줘.
     1. 콘텐츠가 긍정적인 측면과 함께 고려할 위험 요소도 염두에 두고 있는 균형잡힌 내용이어야 하며, 정보를 얻을 수 있고 유용해야 해.
     2. 콘텐츠가 너무 길지 않은지 확인해야 해.
@@ -343,12 +385,22 @@ outlook_chain = (
 #######################################################################################################################################################
 #######################################################################################################################################################
 
-# 사이드바 설정
-st.sidebar.header("검색기록")
+
+
+st.title("리뷰 / SWOT 분석 Dashboard")
 
 # URL 입력 및 버튼
 url = st.text_input("URL을 입력하세요.", placeholder="분석할 URL을 입력하세요.", key="anal_url_input")
 start_button = st.button("분석시작", key="start_button")
+
+
+
+# 사이드바 설정
+st.sidebar.header("검색기록")
+url_link = []
+url_link.append(url)
+st.sidebar.markdown(f"[링크 1]({url_link[-1]})", unsafe_allow_html=True)
+
 
 placeholder = st.empty()
 
@@ -362,9 +414,11 @@ if start_button and url:  # 버튼 클릭 시 실행
     review_folder = os.path.join(os.path.dirname(__file__), 'reviewxisx')
     latest_file = max([os.path.join(review_folder, f) for f in os.listdir(review_folder)], key=os.path.getctime)
     df = pd.read_excel(latest_file, engine='openpyxl')
-    latest_reviews_text = df['리뷰 내용'].to_string()[:1500]  # 최대 1500자까지만 저장
+    latest_reviews_text = df['리뷰 내용'].to_string()  # 최대 1500자까지만 저장
 
-    ABSA_result = ABSA_chain.invoke({"text": latest_reviews_text})
+    ABSA_positive_result = positive_chain.invoke({"text": latest_reviews_text})
+    ABSA_negative_result = negative_chain.invoke({"text": latest_reviews_text})
+    ABSA_neutral_result = neutral_chain.invoke({"text": latest_reviews_text})
 
     swot_response = swot_chain.invoke({"review_text": latest_reviews_text})
     swot_analysis_result = collect_swot_keywords(swot_response)
@@ -390,7 +444,21 @@ if start_button and url:  # 버튼 클릭 시 실행
         
         with top_left:
             st.subheader("리뷰 분석")
-            st.write(ABSA_result.content)
+            
+            # 긍정, 부정, 중립 리뷰 결과를 표시할 3개의 열 생성
+            col1, col2, col3 = st.columns(3)
+
+            with col1:
+                st.write("### 긍정적 리뷰")
+                st.write(ABSA_positive_result.content)  # 긍정 리뷰 결과 출력
+
+            with col2:
+                st.write("### 부정적 리뷰")
+                st.write(ABSA_negative_result.content)  # 부정 리뷰 결과 출력
+
+            with col3:
+                st.write("### 중립적 리뷰")
+                st.write(ABSA_neutral_result.content)  # 중립 리뷰 결과 출력
 
         with top_right:
             st.subheader("SWOT 분석")
@@ -484,3 +552,5 @@ if start_button and url:  # 버튼 클릭 시 실행
             st.markdown('<div class="divider-vertical"></div>', unsafe_allow_html=True) 
             st.subheader("향후 전망")
             st.write(outlook_result.content)
+            
+            

@@ -1,129 +1,153 @@
+# coupang_review.py
+
 from bs4 import BeautifulSoup as bs
-from pathlib import Path
 from openpyxl import Workbook
+from requests.exceptions import RequestException
 import time
 import os
 import re
 import requests as rq
 import json
 import math
+import sys
 
-def get_headers(key: str) -> dict[str, dict[str, str]] | None:
-    """ Get Headers """
+# 헤더 파일 로드
+def get_headers(key: str) -> dict[str, str]:
+    """헤더 정보 로드"""
     current_dir = os.path.dirname(os.path.abspath(__file__))
     json_file_path = os.path.join(current_dir, 'headers.json')
     with open(json_file_path, 'r', encoding='UTF-8') as file:
         headers = json.loads(file.read())
-
+    
     try:
         return headers[key]
-    except:
-        raise EnvironmentError(f'Set the {key}')
+    except KeyError:
+        raise EnvironmentError(f"{key}가 설정되지 않았습니다.")
 
-class Coupang():
+# 쿠팡 크롤러 클래스
+class Coupang:
     @staticmethod
     def get_product_code(url: str) -> str:
-        prod_code: str = url.split('products/')[-1].split('?')[0]
-        return prod_code
+        """URL에서 상품 코드를 추출"""
+        return url.split("products/")[-1].split("?")[0]
 
     @staticmethod
     def get_soup_object(resp: rq.Response) -> bs:
-        return bs(resp.text, 'html.parser')
+        """HTML 내용을 BeautifulSoup 객체로 변환"""
+        return bs(resp.text, "html.parser")
 
     def __init__(self) -> None:
-        self.__headers: dict[str, str] = get_headers(key='headers')
-        self.base_review_url: str = 'https://www.coupang.com/vp/product/reviews'
+        self.__headers = get_headers(key="headers")
+        self.base_review_url = "https://www.coupang.com/vp/product/reviews"
         self.sd = SaveData()
+        self.retries = 5
+        self.delay = 2
 
-    def get_title(self, prod_code: str) -> str:
-        url = f'https://www.coupang.com/vp/products/{prod_code}'
+    def get_product_info(self, prod_code: str) -> tuple:
+        """상품 정보 추출"""
+        url = f"https://www.coupang.com/vp/products/{prod_code}"
         resp = rq.get(url=url, headers=self.__headers)
         soup = self.get_soup_object(resp=resp)
-        return soup.select_one('h1.prod-buy-header__title').text.strip()
+        
+        title = soup.select_one("h1.prod-buy-header__title").text.strip()
+        review_count = int(re.sub("[^0-9]", "", soup.select("span.count")[0].text.strip()))
+        return title, review_count
 
     def start(self, url: str) -> None:
+        """크롤링 시작"""
         self.sd.create_directory()
-        self.__headers['referer'] = url  # URL을 사용할 수 있도록 설정
+        self.__headers["Referer"] = url
+        prod_code = self.get_product_code(url=url)
 
-        prod_code: str = self.get_product_code(url=url)
-        self.title: str = self.get_title(prod_code=prod_code)
+        # 상품 정보 추출
+        self.title, review_count = self.get_product_info(prod_code=prod_code)
+        review_pages = 9
 
-        # 테스트를 위해서 리뷰 페이지를 한 페이지로 제한
-        review_pages = 15
-        
-        # Set payload
+        # 페이로드 설정
         payloads = [{
-            'productId': prod_code,
-            'page': page,
-            'size': 5,  # 리뷰 5개씩 불러오기
-            'sortBy': 'ORDER_SCORE_ASC',
-            'ratings': '',
-            'q': '',
-            'viRoleCode': 2,
-            'ratingSummary': True
+            "productId": prod_code,
+            "page": page,
+            "size": 5,
+            "sortBy": "ORDER_SCORE_ASC",
+            "ratings": "",
+            "q": "",
+            "viRoleCode": 2,
+            "ratingSummary": True
         } for page in range(1, review_pages + 1)]
         
-        with rq.Session() as session:
-            for payload in payloads:
-                self.fetch(session=session, payload=payload)
+        # 데이터 크롤링
+        for payload in payloads:
+            self.fetch(payload=payload)
 
-    def fetch(self, session: rq.Session, payload: dict) -> None:
-        now_page: str = payload['page']
-        print(f"\n[INFO] Start crawling page {now_page} ...\n")
-        with session.get(url=self.base_review_url, headers=self.__headers, params=payload) as response:
-            html = response.text
-            soup = bs(html, 'html.parser')
-            
-            # 상품명
-            title = soup.select_one('h1.prod-buy-header__title')
-            title = '-' if title is None or title.text == '' else title.text.strip()
-
-            # Article Boxes
-            articles = soup.select('article.sdp-review__article__list')
-            if not articles:
-                print("[WARNING] No articles found on page.")
-            for article in articles:
-                dict_data: dict[str, str | int] = {}
-
-                # 리뷰 내용
-                review_content = article.select_one('div.sdp-review__article__list__review > div')
-                review_content = '등록된 리뷰내용이 없습니다' if review_content is None else re.sub('[\n\t]', '', review_content.text.strip())
-                    
-                dict_data['title'] = self.title
-                dict_data['review_content'] = review_content
-
-                self.sd.save(datas=dict_data)
-                print(dict_data, '\n')
-            time.sleep(2)
-
-    @staticmethod
-    def clear_console() -> None:
-        command: str = 'clear' if os.name not in ('nt', 'dos') else 'cls'
-        os.system(command)
+    def fetch(self, payload: dict) -> None:
+        """리뷰 페이지에서 데이터 추출"""
+        now_page = payload["page"]
+        print(f"\n[INFO] 페이지 {now_page} 크롤링 시작...\n")
+        
+        for attempt in range(self.retries):
+            try:
+                with rq.Session() as session:
+                    with session.get(
+                        url=self.base_review_url, headers=self.__headers, params=payload, timeout=10
+                    ) as resp:
+                        resp.raise_for_status()
+                        soup = self.get_soup_object(resp)
+                        articles = soup.select("article.sdp-review__article__list")
+                        
+                        # 리뷰 데이터 추출
+                        for article in articles:
+                            dict_data = {
+                                "title": self.title,
+                                "review_date": article.select_one(
+                                    "div.sdp-review__article__list__info__product-info__reg-date"
+                                ).text.strip() if article.select_one(
+                                    "div.sdp-review__article__list__info__product-info__reg-date") else "-",
+                                "user_name": article.select_one(
+                                    "span.sdp-review__article__list__info__user__name"
+                                ).text.strip() if article.select_one(
+                                    "span.sdp-review__article__list__info__user__name") else "-",
+                                "rating": int(article.select_one(
+                                    "div.sdp-review__article__list__info__product-info__star-orange"
+                                ).attrs["data-rating"]) if article.select_one(
+                                    "div.sdp-review__article__list__info__product-info__star-orange") else 0,
+                                "review_content": re.sub(
+                                    "[\n\t]", "", article.select_one(
+                                        "div.sdp-review__article__list__review > div"
+                                    ).text.strip()) if article.select_one(
+                                        "div.sdp-review__article__list__review > div") else "리뷰 내용 없음",
+                            }
+                            self.sd.save(datas=dict_data)
+                            print(dict_data, "\n")
+                        time.sleep(1)
+                        return
+            except RequestException as e:
+                print(f"{attempt + 1}번째 시도 실패: {e}")
+                time.sleep(self.delay)
+        print("최대 재시도 초과. 종료합니다.")
+        sys.exit()
 
     def calculate_total_pages(self, review_counts: int) -> int:
-        reviews_per_page: int = 5
-        return int(math.ceil(review_counts / reviews_per_page))
+        """리뷰 총 페이지 수 계산"""
+        return math.ceil(review_counts / 5)
 
-class SaveData():
+class SaveData:
     def __init__(self) -> None:
-        self.wb: Workbook = Workbook()
+        self.wb = Workbook()
         self.ws = self.wb.active
-        self.ws.append(['리뷰 내용'])
-        self.row: int = 2
-        self.dir_name: str = 'reviewxisx'
-        self.create_directory()
+        self.ws.append(["제목", "작성일자", "사용자명", "평점", "리뷰 내용"])
+        self.row = 2
+        self.dir_name = "reviewxisx"
 
     def create_directory(self) -> None:
+        """저장 폴더 생성"""
         if not os.path.exists(self.dir_name):
             os.makedirs(self.dir_name)
 
-    def save(self, datas: dict[str, str | int]) -> None:
-        file_name: str = os.path.join(self.dir_name, datas['title'] + '.xlsx')
-        self.ws[f"A{self.row}"] = datas['review_content']
-        self.row += 1
+    def save(self, datas: dict) -> None:
+        """데이터를 엑셀 파일에 저장"""
+        file_name = os.path.join(self.dir_name, f"{datas['title']}.xlsx")
+        self.ws.append([datas["title"], datas["review_date"], datas["user_name"], datas["rating"], datas["review_content"]])
         self.wb.save(filename=file_name)
-
 
     def __del__(self) -> None:
         self.wb.close()
