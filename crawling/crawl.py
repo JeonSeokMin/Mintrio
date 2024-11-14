@@ -49,7 +49,7 @@ class Coupang():
         self.title: str = self.get_title(prod_code=prod_code)
 
         # 테스트를 위해서 리뷰 페이지를 한 페이지로 제한
-        review_pages = 1
+        review_pages = 15
         
         # Set payload
         payloads = [{
