@@ -81,7 +81,7 @@ st.markdown(
 
 ABSA_llm = ChatOpenAI(
     temperature=0.7,  # 창의성
-    model_name="gpt-3.5-turbo",  # 모델명
+    model_name="gpt-4o",  # 모델명
 )
 
 ABSA_template = """
@@ -116,7 +116,7 @@ ABSA_chain = (
 
 SWOT_llm = ChatOpenAI(
     temperature=0.7,  # 창의성
-    model_name="gpt-3.5-turbo",  # 모델명
+    model_name="gpt-4o",  # 모델명
 )
 
 class SWOTKeywords(BaseModel):
@@ -159,7 +159,7 @@ swot_template = """
 
     주의사항:
     1. 반드시 위의 JSON 형식을 정확히 따라주세요
-    2. 모든 필드는 필수이며, 값이 없는 경우 "없음"으로 표시
+    2. 모든 필드는 필수이며
     3. 다른 설명이나 부가 텍스트 없이 JSON만 출력
     4. 실제 키워드는 한글로 작성
 
@@ -232,10 +232,12 @@ def search_serp(query):
 def pick_best_articles_urls(response_json, query):
   response_str = json.dumps(response_json)
 
-  llm = ChatOpenAI(temperature=0.5)
+  llm = ChatOpenAI(model="gpt-3.5-turbo", temperature=0.5)
   template = """
     너는 소비자 트렌드와 시장 동향을 분석하는 전문 평론가야.
     지금 분석 중인 상품 브랜드의 기회와 위협 요인에 관한 최신 뉴스나 아티클을 찾고 있어.
+
+    뉴스와 아티클은 https://www.google.com/으로 시작해야 돼.
 
     QUERY RESPONSE :{response_str}
 
@@ -246,9 +248,8 @@ def pick_best_articles_urls(response_json, query):
     return ONLY an array of urls.
     also make sure the articles are recent and not too old.
     if the file, or URL is invalid, show www.google.com
-
     """
-
+  
   prompt_template = PromptTemplate(input_variables=["response_str", "query"], template = template)
 
   article_chooser_chain = LLMChain(
@@ -285,14 +286,14 @@ def summarizer(db, query, k=4):
 
   docs_page_content = " ".join([d.page_content for d in docs])
 
-  llm = ChatOpenAI(model="gpt-3.5-turbo", temperature=0.5)
+  llm = ChatOpenAI(model="gpt-4o", temperature=0.7)
   template = """
     {docs}
 
     이 뉴스레터는 이메일로 발성될거야. 스팸처럼 보이지 않도록 아래의 양식을 지켜야 해.
 
     가이드라인에 맞춰서 적어줘.
-    1. 콘텐츠가 밝은 내용이어야 하며, 정보를 얻을 수 있고 유용해야 해.
+    1. 콘텐츠가 긍정적인 측면과 함께 고려할 위험 요소도 염두에 두고 있는 균형잡힌 내용이어야 하며, 정보를 얻을 수 있고 유용해야 해.
     2. 콘텐츠가 너무 길지 않은지 확인해야 해.
     3. 콘텐츠는 {query}토픽을 잘 나타내고 있는 내용이어야 해.
     4. 콘텐츠는 읽기 쉽게 쓰여야 하고, 간결해야 해.
@@ -309,6 +310,35 @@ def summarizer(db, query, k=4):
   response = summarize_chain.run(docs=docs_page_content, query=query)
 
   return response.replace("\n", "")
+
+#######################################################################################################################################################
+#######################################################################################################################################################
+
+# 상품 브랜드 전망
+outlook_llm = ChatOpenAI(
+    model= "gpt-4o",
+    temperature=0.7
+)
+
+outlook_template = """
+    너는 소비자 트렌드와 시장 동향을 분석하는 전문 평론가야.
+
+    {article_summary}
+
+    위의 정보는 해당 상품 브랜드의 소비자 리뷰를 사용한 SWOT 분석의 Opportunity와 Threat 키워드를 기반으로 수집한 뉴스 기사 요약이야.
+
+    긍정적인 측면과 함께 고려할 위험 요소도 염두에 두고, 분석 중인 상품 브랜드의 향후 전망을 균형 잡힌 시각에서 알려줘.
+"""
+
+outlook_prompt = PromptTemplate(
+    template= outlook_template,
+    input_variables=["article_summary"]
+)
+
+outlook_chain = (
+    outlook_prompt
+    | outlook_llm
+)
 
 #######################################################################################################################################################
 #######################################################################################################################################################
@@ -446,7 +476,11 @@ if start_button and url:  # 버튼 클릭 시 실행
             st.write("### 위협 관련 뉴스 기사")
             st.write(threat_summaries)
 
+        total_news_summary = oppor_summaries + threat_summaries
+
+        outlook_result = outlook_chain.invoke({"article_summary" : total_news_summary})
+
         with bottom_right:
             st.markdown('<div class="divider-vertical"></div>', unsafe_allow_html=True) 
             st.subheader("향후 전망")
-            st.write()
+            st.write(outlook_result.content)
