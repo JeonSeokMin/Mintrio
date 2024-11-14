@@ -236,7 +236,7 @@ def pick_best_articles_urls(response_json, query):
   template = """
     너는 소비자 트렌드와 시장 동향을 분석하는 전문 평론가야.
     지금 분석 중인 상품 브랜드의 기회와 위협 요인에 관한 최신 뉴스나 아티클을 찾고 있어.
-
+    뉴스는 https://www.google.com/으로 시작해야 돼.
     QUERY RESPONSE :{response_str}
 
     위의 리스트는 쿼리 결과에 대한 검색 리스트야 {query}.
@@ -297,6 +297,7 @@ def summarizer(db, query, k=4):
     3. 콘텐츠는 {query}토픽을 잘 나타내고 있는 내용이어야 해.
     4. 콘텐츠는 읽기 쉽게 쓰여야 하고, 간결해야 해.
     5. 콘텐츠는 독자에게 영감을 줄 수 있어야 해.
+
 
     읽기 편하게 한국어로 작성해 줘.
 
